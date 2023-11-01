@@ -2,9 +2,12 @@ import { HardhatUserConfig } from "hardhat/config";
 import {removeConsoleLog} from 'hardhat-preprocessor';
 import "@nomicfoundation/hardhat-toolbox";
 import "hardhat-gas-reporter"
+import {config as dotenvConfig} from "dotenv";
+
+dotenvConfig();
 
 const config: HardhatUserConfig = {
-  solidity: "0.8.19",
+  solidity: "0.8.18",
   networks: {
     sepolia: {
       url: process.env.SEPOLIA_URL,

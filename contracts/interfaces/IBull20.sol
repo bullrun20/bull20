@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.9;
+pragma solidity 0.8.18;
 
 import "./IRateProvider.sol";
 import "./IToken.sol";
@@ -14,8 +14,6 @@ interface IBull20 {
 
     function rateProvider() external view returns (IRateProvider);
 
-    function mainToken() external view returns (IToken);
-
     function stages() external view returns (Stage[] memory);
 
     function activeStage() external view returns (Stage memory);
@@ -28,13 +26,9 @@ interface IBull20 {
 
     function buy(uint256 amount, address token, uint256 msgValue, address msgSender) external payable;
 
-    function swap(uint256 _amount, address msgSender) external;
-
     function disable() external;
 
     function enable() external;
-
-    function setMainToken(address mainToken_) external;
 
     function setRateProvider(address rateProvider_) external;
 

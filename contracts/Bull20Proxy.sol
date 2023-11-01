@@ -1,18 +1,29 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.9;
+pragma solidity 0.8.18;
 
 import "./interfaces/IBull20.sol";
 import "./interfaces/IToken.sol";
 import "./interfaces/IRateProvider.sol";
-import "./helpers/Holder.sol";
 import "./interfaces/Stage.sol";
+import "./helpers/Holder.sol";
 
 contract Bull20Proxy is Holder {
+    event SetInstanceAddressEvent(address indexed instance);
+    event SendEthToInstance(uint256 value);
+    event BuyEvent();
+    event StatusEvent(bool enabled);
+    event SetRateProviderEvent(address indexed rateProvider);
+    event EditStageEvent(uint indexed index, uint256 priceUSD, uint256 expectedValue);
+    event DeleteLastStageEvent();
+    event AirdropEvent();
+    event WithdrawEvent();
+
     address private _instance;
 
     function setInstanceAddress(address instance) onlyHolder external {
         require(instance.code.length != 0, "Invalid contract");
         _instance = instance;
+        emit SetInstanceAddressEvent(instance);
     }
 
     function getInstanceAddress() external view returns (address) {
@@ -20,8 +31,9 @@ contract Bull20Proxy is Holder {
     }
 
     function _getInstance() private view returns (IBull20) {
-        require(_instance != address(0x0), "Instance is not configured");
-        return IBull20(_instance);
+        address inst = _instance;
+        require(inst != address(0x0), "Instance is not configured");
+        return IBull20(inst);
     }
 
     // public overrides
@@ -36,10 +48,6 @@ contract Bull20Proxy is Holder {
 
     function rateProvider() external view returns (IRateProvider) {
         return _getInstance().rateProvider();
-    }
-
-    function mainToken() public view returns (IToken) {
-        return _getInstance().mainToken();
     }
 
     function stages() public view returns (Stage[] memory) {
@@ -62,55 +70,59 @@ contract Bull20Proxy is Holder {
 
     function buy(uint256 amount, address token) external payable {
         _getInstance().buy(amount, token, msg.value, msg.sender);
-
-        if (address(this).balance != 0) {
-            payable(_instance).transfer(address(this).balance);
-        }
-    }
-
-    function swap(uint256 _amount) external {
-        return _getInstance().swap(_amount, msg.sender);
+        emit BuyEvent();
+        _transferAllToInstance();
     }
 
     // owner overrides
 
     function disable() external onlyHolder {
+        emit StatusEvent(false);
         return _getInstance().disable();
     }
 
     function enable() external onlyHolder {
+        emit StatusEvent(true);
         return _getInstance().enable();
     }
 
-    function setMainToken(address mainToken_) external onlyHolder {
-        return _getInstance().setMainToken(mainToken_);
-    }
-
     function setRateProvider(address rateProvider_) public onlyHolder {
+        emit SetRateProviderEvent(rateProvider_);
         return _getInstance().setRateProvider(rateProvider_);
     }
 
     function addStage(uint256 priceUSD, uint256 expectedValue) external onlyHolder returns (Stage memory) {
-        return _getInstance().addStage(priceUSD, expectedValue);
+        Stage memory stage = _getInstance().addStage(priceUSD, expectedValue);
+        emit EditStageEvent(stage.index, priceUSD, expectedValue);
+        return stage;
     }
 
-    function editStage(uint index, uint256 price, uint256 expectedValue) external onlyHolder returns (Stage memory) {
-        return _getInstance().editStage(index, price, expectedValue);
+    function editStage(uint index, uint256 priceUSD, uint256 expectedValue) external onlyHolder returns (Stage memory) {
+        emit EditStageEvent(index, priceUSD, expectedValue);
+        return _getInstance().editStage(index, priceUSD, expectedValue);
     }
 
     function deleteLastStage() external onlyHolder {
+        emit DeleteLastStageEvent();
         return _getInstance().deleteLastStage();
     }
 
     function airdrop(address wallet, uint256 amount) external onlyHolder {
+        emit AirdropEvent();
         return _getInstance().airdrop(wallet, amount);
     }
 
     function airdropMany(address[] memory wallets, uint256[] memory amounts) external onlyHolder {
+        emit AirdropEvent();
         return _getInstance().airdropMany(wallets, amounts);
     }
 
     function withdraw() external onlyHolder payable {
+        emit WithdrawEvent();
         return _getInstance().withdraw(holder());
+    }
+
+    function _transferAllToInstance() private {
+        payable(_instance).transfer(address(this).balance);
     }
 }

@@ -14,7 +14,6 @@ describe('Bull20', () => {
   const emptyAddress: any = '0x0000000000000000000000000000000000000000';
   const onlyOwnerError = 'Caller is not the holder';
   const noZeroAmount = 'Amount should be > 0';
-  const notEnoughTokensError = 'Not enough tokens';
 
   const deployRateProvider = async () => {
     const ERC20 = await ethers.getContractFactory('MockERC20');
@@ -35,7 +34,7 @@ describe('Bull20', () => {
     const rateProvider = await UniswapRateProvider.deploy(
       await uniswapFactory.getAddress(),
       await weth.getAddress(),
-      );
+    );
     await rateProvider.addRatePair(await usdt.getAddress(), await weth.getAddress());
     return {rateProvider, usdt, weth};
   }
@@ -51,11 +50,49 @@ describe('Bull20', () => {
     await usdt.mint(owner.address, ethers.parseEther('1000000000'));
     await usdt.mint(account1.address, ethers.parseEther('1000000000'));
     const bull20Proxy = await Bull20Proxy.deploy();
-    const bull20Internal = await Bull20.deploy(await bull20Proxy.getAddress());
-    await bull20Proxy.setInstanceAddress(await bull20Internal.getAddress());
+    const bull20Instance = await Bull20.deploy(await bull20Proxy.getAddress());
+    await bull20Proxy.setInstanceAddress(await bull20Instance.getAddress());
     await bull20Proxy.setRateProvider(await rateProvider.getAddress());
     await bull20Proxy.enable();
-    return {bull20: bull20Proxy, owner, account1, testToken: usdt, rateProvider};
+    return {bull20: bull20Proxy, instance: bull20Instance, owner, account1, testToken: usdt, rateProvider};
+  }
+
+  const withdrawNative = async (
+    bull20: Bull20Proxy,
+    rateProvider: UniswapRateProvider
+  ) => {
+    const stagePrice: bigint = ethers.parseEther('10');
+    const amount = 20n;
+    const value = await rateProvider.getAmountForUSD(emptyAddress, amount * stagePrice);
+    await bull20.addStage(stagePrice, ethers.parseEther('50'));
+    await bull20.buy(amount, emptyAddress, {
+      value,
+    });
+
+    const balanceBeforeWithdraw = await ethers.provider.getBalance(await bull20.getInstanceAddress());
+    await bull20.withdraw();
+    const balanceAfterWithdraw = await ethers.provider.getBalance(await bull20.getInstanceAddress());
+    expect(balanceBeforeWithdraw).to.equal(value);
+    expect(balanceAfterWithdraw).to.equal(0n);
+  }
+
+  const withdrawTokens = async (
+    bull20: Bull20Proxy,
+    testToken: MockERC20,
+    rateProvider: UniswapRateProvider
+  ) => {
+    const stagePrice: bigint = ethers.parseEther('10');
+    const amount = 35n;
+    const value = await rateProvider.getAmountForUSD(testToken, amount * stagePrice);
+    await testToken.approve(await bull20.getInstanceAddress(), value);
+    await bull20.addStage(stagePrice, ethers.parseEther('50'));
+    await bull20.buy(amount, await testToken.getAddress());
+
+    const balanceBeforeWithdraw = await testToken.balanceOf(await bull20.getInstanceAddress());
+    await bull20.withdraw();
+    const balanceAfterWithdraw = await testToken.balanceOf(await bull20.getInstanceAddress());
+    expect(balanceBeforeWithdraw).to.equal(value);
+    expect(balanceAfterWithdraw).to.equal(0n);
   }
 
   describe('Stages', () => {
@@ -126,33 +163,23 @@ describe('Bull20', () => {
       expect(await bull20.presaleAmount(owner.address)).to.equal(60n);
     });
 
-    it('Swap to real tokens', async () => {
-      const {bull20, rateProvider, testToken} = await loadFixture(deployLockFixture);
-      await bull20.addStage(ethers.parseEther('10'), ethers.parseEther('50'));
-      await bull20.addStage(ethers.parseEther('20'), ethers.parseEther('100'));
-      await bull20.buy(2n, emptyAddress, {
-        value: await rateProvider.getAmountForUSD(emptyAddress, ethers.parseEther('20')),
-      });
-      await expect(bull20.swap(2n)).to.be.revertedWith(notEnoughTokensError);
-      await bull20.buy(49n, emptyAddress, {
-        value: await rateProvider.getAmountForUSD(emptyAddress, ethers.parseEther('490')),
-      });
-      const amount = 2n;
-      await testToken.mint(await bull20.getInstanceAddress(), amount);
-      await testToken.approve(await bull20.getInstanceAddress(), amount);
-      await bull20.setMainToken(await testToken.getAddress());
-      await bull20.swap(amount);
-    });
-
     it('Buy little amount', async () => {
-      const {bull20, testToken, rateProvider} = await loadFixture(deployLockFixture);
+      const {bull20, instance, testToken, rateProvider, owner} = await loadFixture(deployLockFixture);
       await bull20.addStage(ethers.parseEther('10'), ethers.parseEther('50'));
       await bull20.buy(2n, emptyAddress, {
         value: await rateProvider.getAmountForUSD(emptyAddress, ethers.parseEther('20')),
       });
       await testToken.approve(await bull20.getInstanceAddress(),
         ethers.parseEther('30'));
-      await bull20.buy(3n, await testToken.getAddress());
+      const value = 3n;
+      await expect(bull20.buy(value, await testToken.getAddress()))
+        .to.emit(instance, 'Purchase')
+        .withArgs(
+          await owner.getAddress(),
+          30000000n,
+          await testToken.getAddress(),
+          value,
+        );
     });
 
     describe('Buy', () => {
@@ -209,37 +236,12 @@ describe('Bull20', () => {
   describe('Withdrawing', () => {
     it('Withdraw native', async () => {
       const {bull20, rateProvider} = await loadFixture(deployLockFixture);
-
-      const stagePrice: bigint = ethers.parseEther('10');
-      const amount = 20n;
-      const value = await rateProvider.getAmountForUSD(emptyAddress, amount * stagePrice);
-      await bull20.addStage(stagePrice, ethers.parseEther('50'));
-      await bull20.buy(amount, emptyAddress, {
-        value,
-      });
-
-      const balanceBeforeWithdraw = await ethers.provider.getBalance(await bull20.getInstanceAddress());
-      await bull20.withdraw();
-      const balanceAfterWithdraw = await ethers.provider.getBalance(await bull20.getInstanceAddress());
-      expect(balanceBeforeWithdraw).to.equal(value);
-      expect(balanceAfterWithdraw).to.equal(0n);
+      await withdrawNative(bull20, rateProvider);
     });
 
     it('Withdraw tokens', async () => {
       const {bull20, testToken, rateProvider} = await loadFixture(deployLockFixture);
-
-      const stagePrice: bigint = ethers.parseEther('10');
-      const amount = 35n;
-      const value = await rateProvider.getAmountForUSD(testToken, amount * stagePrice);
-      await testToken.approve(await bull20.getInstanceAddress(), value);
-      await bull20.addStage(stagePrice, ethers.parseEther('50'));
-      await bull20.buy(amount, await testToken.getAddress());
-
-      const balanceBeforeWithdraw = await testToken.balanceOf(await bull20.getInstanceAddress());
-      await bull20.withdraw();
-      const balanceAfterWithdraw = await testToken.balanceOf(await bull20.getInstanceAddress());
-      expect(balanceBeforeWithdraw).to.equal(value);
-      expect(balanceAfterWithdraw).to.equal(0n);
+      await withdrawTokens(bull20, testToken, rateProvider);
     });
   });
 
@@ -282,6 +284,17 @@ describe('Bull20', () => {
       await bull20.buy(2n, await testToken.getAddress());
       const balance = await testToken.balanceOf(await bull20.getInstanceAddress());
       expect(balance).to.equal(value);
+    });
+
+    it('Withdrawing', async () => {
+      const {bull20, rateProvider, testToken} = await loadFixture(deployLockFixture);
+      const Bull20 = await ethers.getContractFactory('Bull20');
+      const bull20NewInstance = await Bull20.deploy(await bull20.getAddress());
+      await bull20.setInstanceAddress(await bull20NewInstance.getAddress());
+      await bull20.setRateProvider(await rateProvider.getAddress());
+      await bull20.enable();
+      await withdrawNative(bull20, rateProvider);
+      await withdrawTokens(bull20, testToken, rateProvider);
     });
   });
 

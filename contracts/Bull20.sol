@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.9;
+pragma solidity 0.8.18;
 
 import "./interfaces/IRateProvider.sol";
 import "./helpers/Holder.sol";
@@ -10,6 +10,7 @@ import "./helpers/Proxy.sol";
 
 contract Bull20 is IBull20, Proxy {
     event Airdrop(address indexed wallet, uint256 amount);
+    event Purchase(address indexed wallet, uint256 cost, address token, uint256 amount);
     event Received(address, uint256);
 
     bool private _enabled = false;
@@ -18,7 +19,6 @@ contract Bull20 is IBull20, Proxy {
     // wallet->stage->balance
     mapping(address => mapping(uint => uint256)) private _presale;
     address[] private _holders;
-    address private _mainToken;
 
     constructor(address proxy_) payable Proxy(proxy_) {}
 
@@ -36,12 +36,6 @@ contract Bull20 is IBull20, Proxy {
 
     function rateProvider() external view onlyFromProxy returns (IRateProvider) {
         return _rateProvider;
-    }
-
-    function mainToken() public view onlyFromProxy returns (IToken) {
-        address cachedMainToken = _mainToken;
-        require(cachedMainToken.code.length != 0, "Invalid contract");
-        return IToken(cachedMainToken);
     }
 
     function stages() public view onlyFromProxy returns (Stage[] memory) {
@@ -94,6 +88,13 @@ contract Bull20 is IBull20, Proxy {
         uint256 costUSD = activeStage().price * amount;
         uint256 value = _rateProvider.getAmountForUSD(token, costUSD);
 
+        emit Purchase(
+            msgSender,
+            value,
+            token,
+            amount
+        );
+
         // If native currency
         if (token == address(0x0)) {
             require(msgValue == value, "Incorrect amount");
@@ -106,41 +107,12 @@ contract Bull20 is IBull20, Proxy {
         }
     }
 
-    function swap(uint256 _amount, address msgSender) external onlyFromProxy {
-        require(_enabled, "Contract should be enabled");
-        require(_amount != 0, "Amount should be > 0");
-        uint256 amount = _amount;
-        Stage memory currentStage = activeStage();
-
-        for (uint i = 0; i < currentStage.index; --i) {
-            uint256 presaleAmount = _presale[msgSender][i];
-
-            if (amount > presaleAmount) {
-                amount -= presaleAmount;
-                _presale[msgSender][i] = 0;
-            } else {
-                _presale[msgSender][i] -= amount;
-                amount = 0;
-                break;
-            }
-        }
-
-        require(amount == 0, "Not enough tokens");
-        bool success = mainToken().transfer(msgSender, _amount);
-        require(success, "Swap failed");
-    }
-
     function disable() external onlyFromProxy {
         _enabled = false;
     }
 
     function enable() external onlyFromProxy {
         _enabled = true;
-    }
-
-    function setMainToken(address mainToken_) external onlyFromProxy {
-        require(mainToken_ != address(0x0), "Empty main token");
-        _mainToken = mainToken_;
     }
 
     function setRateProvider(address rateProvider_) public onlyFromProxy {

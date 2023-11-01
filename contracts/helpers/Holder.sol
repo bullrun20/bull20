@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.9;
+pragma solidity 0.8.18;
 
 abstract contract Holder {
+    event ChangeHolderEvent(address holder);
+
     address private _holder;
 
     constructor() {
@@ -28,5 +30,6 @@ abstract contract Holder {
 
     function _setHolder(address newHolder) internal virtual {
         _holder = newHolder;
+        emit ChangeHolderEvent(newHolder);
     }
 }
