@@ -10,7 +10,7 @@ const config: HardhatUserConfig = {
   solidity: "0.8.18",
   networks: {
     sepolia: {
-      url: process.env.SEPOLIA_URL,
+      url: process.env.NETWORK_URL,
       accounts: [process.env.OWNER_PRIVATE_KEY]
     }
   },
